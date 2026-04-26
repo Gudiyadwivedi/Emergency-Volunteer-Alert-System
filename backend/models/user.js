@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
@@ -16,6 +17,11 @@ const userSchema = new mongoose.Schema(
       enum: ["user", "volunteer", "admin"],
       default: "user",
     },
+
+    // OTP Fields
+    otp: { type: String },
+    otpExpiresAt: { type: Date },
+    isVerified: { type: Boolean, default: false },
 
     // USER (Victim) fields
     medicalInfo: {
@@ -36,7 +42,7 @@ const userSchema = new mongoose.Schema(
     verified: { type: Boolean, default: false },
 
     available: { type: Boolean, default: true },
-
+    status:{type: Boolean, default: true},
     location: {
       type: {
         type: String,
@@ -44,60 +50,58 @@ const userSchema = new mongoose.Schema(
         default: "Point",
       },
       coordinates: {
-        type: [Number], // [lng, lat]
+        type: [Number],
         default: [0, 0],
       },
     },
+
+    
+  refreshToken: {
+    type:String
+}
   },
-  { timestamps: true }
+
+  
+  { timestamps: true },
+
+
 );
 
-// IMPORTANT: Geo Index for nearby volunteer search
+// Geo Index
 userSchema.index({ location: "2dsphere" });
 
+userSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
 
-userSchema.pre("save", async function(next){
+  this.password = await bcrypt.hash(this.password, 10);
+  next();
+});
 
-    //  if(!this.isModified("password")) return next()
-    if(this.isModified("password")){
-        this.password=await bcrypt.hash(this.password,10)
-next()}
+userSchema.methods.isPasswordCorrect = async function (password) {
+  return await bcrypt.compare(password, this.password);
+};
 
-})
+// FIXED Access Token
+userSchema.methods.generateAccessToken = function () {
+  return jwt.sign(
+    {
+      _id: this._id,
+      email: this.email,
+      name: this.name,
+      role: this.role,
+    },
+    process.env.ACCESS_TOKEN_SECRET,
+    { expiresIn: process.env.ACCESS_TOKEN_EXPIRY }
+  );
+};
 
-userSchema.methods.isPasswordCorrect=async function (password) {
-    return await bcrypt.compare(password,this.password)
-    
-}
-
-userSchema.methods.generatetokenAccessToken=function(){
-    return jwt.sign(
-        {
-            _id:this._id,
-            email:this.email,
-            username:this.username,
-            fullname:this.fullname
-        },
-        process.env.ACCESS_TOKEN_SECRET,
-        {
-            expiresIn:process.env.ACCESS_TOKEN_EXPIRY
-        }
-    )
-}
-userSchema.methods.generateRefreshToken=function(){
-    return jwt.sign(
-        {
-            _id:this._id,
-           
-        },
-        process.env.REFRESH_TOKEN_SECRET,
-        {
-            expiresIn:process.env.REFRESH_TOKEN_EXPIRY
-        }
-    )
-}
-
-
+userSchema.methods.generateRefreshToken = function () {
+  return jwt.sign(
+    { _id: this._id },
+    process.env.REFRESH_TOKEN_SECRET,
+    { expiresIn: process.env.REFRESH_TOKEN_EXPIRY }
+  );
+};
 
 const User = mongoose.model("User", userSchema);
 

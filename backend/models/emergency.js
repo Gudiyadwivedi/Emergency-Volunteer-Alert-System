@@ -1,5 +1,4 @@
-const mongoose = require("mongoose");
-
+import mongoose from "mongoose";
 const emergencySchema = new mongoose.Schema(
   {
     victimId: {
@@ -59,4 +58,9 @@ const emergencySchema = new mongoose.Schema(
 
 emergencySchema.index({ location: "2dsphere" });
 
-module.exports = mongoose.model("Emergency", emergencySchema);
+
+
+const Emergency = mongoose.model("Emergency", emergencySchema);
+
+export default Emergency;
+
