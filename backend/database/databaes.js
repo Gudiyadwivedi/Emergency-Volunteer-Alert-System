@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 
 const database=async()=>{
     try {
-       const a= mongoose.connect(`${process.env.URL}/project`)
+       const a= mongoose.connect(`${process.env.URL}`)
        console.log("database is connected successfully")
 // console.log(a.connection.host)
     } catch (error) {

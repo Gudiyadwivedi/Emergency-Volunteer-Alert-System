@@ -1,5 +1,6 @@
-const mongoose = require("mongoose");
-
+import mongoose from "mongoose";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
@@ -51,11 +52,8 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-
-
 // IMPORTANT: Geo Index for nearby volunteer search
 userSchema.index({ location: "2dsphere" });
-
 
 
 userSchema.pre("save", async function(next){
@@ -100,4 +98,7 @@ userSchema.methods.generateRefreshToken=function(){
 }
 
 
-module.exports = mongoose.model("User", userSchema);
+
+const User = mongoose.model("User", userSchema);
+
+export default User;

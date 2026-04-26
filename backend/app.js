@@ -17,8 +17,8 @@ app.use(express.static("public"))//it store use info like pdf and img in our loc
 
 app.use(cookieParser())//it help  us to access the user cookie in our local device(server) and perform the operation on it
 
-// import router from "./routes/user_routes.js"
+import auth from "./router/authRouter.js";
 
-// app.use("/api/v1/user/",router)
+app.use("/api/v1/auth", auth);
 //http://localhost:8000/api/vi/user
 export {app}
