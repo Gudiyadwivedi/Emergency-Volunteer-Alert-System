@@ -1,0 +1,9 @@
+{
+	"name": "evas_function",
+	"version": "1.0.0",
+	"main": "index.js",
+	"author": "samay.verma@trigya.co",
+	"dependencies": {
+		"zcatalyst-sdk-node": "latest"
+	}
+}
