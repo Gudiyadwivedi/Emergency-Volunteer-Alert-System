@@ -1,0 +1,9 @@
+{
+  "functions": {
+    "targets": [
+      "evas_function"
+    ],
+    "ignore": [],
+    "source": "functions"
+  }
+}
