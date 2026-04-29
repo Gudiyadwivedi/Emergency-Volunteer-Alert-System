@@ -1,256 +1,514 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 
 const AdminDashboard = () => {
-  const [activeTab, setActiveTab] = useState('overview');
-  const [volunteers, setVolunteers] = useState([
-    { id: 1, name: 'John Smith', email: 'john@example.com', status: 'pending', rating: 0 },
-    { id: 2, name: 'Sarah Johnson', email: 'sarah@example.com', status: 'active', rating: 4.8 },
-    { id: 3, name: 'Mike Brown', email: 'mike@example.com', status: 'active', rating: 4.9 },
-  ]);
+  const navigate = useNavigate();
+  const userRole = localStorage.getItem('userRole');
+  
+  const [sosList, setSosList] = useState([]);
+  const [volunteers, setVolunteers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedSOS, setSelectedSOS] = useState(null);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedVolunteer, setSelectedVolunteer] = useState('');
+  const [activeTab, setActiveTab] = useState('active');
+  const [stats, setStats] = useState({
+    activeSOS: 0,
+    assignedSOS: 0,
+    resolvedSOS: 0,
+    totalVolunteers: 0
+  });
 
-  const [emergencies, setEmergencies] = useState([
-    { id: 1, type: 'Medical', location: 'Downtown', time: '10:30 AM', status: 'resolved', responseTime: '3 min' },
-    { id: 2, type: 'Accident', location: 'Highway', time: '11:15 AM', status: 'active', responseTime: '2 min' },
-    { id: 3, type: 'Fire', location: 'Mall', time: '09:45 AM', status: 'resolved', responseTime: '5 min' },
-  ]);
+  useEffect(() => {
+    if (userRole !== 'admin' && userRole !== 'super_admin') {
+      navigate('/login');
+      return;
+    }
+    
+    fetchAllData();
+    
+    const interval = setInterval(fetchAllData, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const stats = {
-    totalUsers: 1234,
-    activeVolunteers: 156,
-    emergenciesToday: 12,
-    avgResponseTime: '3.2 min',
-    resolvedEmergencies: 145,
-    pendingVerifications: 23
+  const fetchAllData = async () => {
+    try {
+      await fetchSOSList();
+      await fetchVolunteers();
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const approveVolunteer = (id) => {
-    setVolunteers(volunteers.map(v => 
-      v.id === id ? { ...v, status: 'active' } : v
-    ));
-    alert('Volunteer approved successfully!');
+  const fetchSOSList = async () => {
+    try {
+      const response = await axios.get(
+        'http://localhost:3000/server/evas_function/app/v1/sos/getAllSOS'
+      );
+      
+      if (response.data.success) {
+        const mappedSOS = response.data.data.map(item => ({
+          ROWID: item.sos.ROWID,
+          userId: item.sos.userId,
+          latitude: item.sos.latitude,
+          longitude: item.sos.longitude,
+          status: item.sos.status,
+          CREATEDTIME: item.sos.CREATEDTIME,
+          MODIFIEDTIME: item.sos.MODIFIEDTIME,
+          assignedVolunteerId: item.sos.assignedVolunteerId,
+          severity: item.sos.severity,
+          resolvedAt: item.sos.resolvedAt,
+          message: item.sos.message,
+          userName: item.userTable.name,
+          userPhone: item.userTable.phone,
+          userEmail: item.userTable.email,
+          bloodGroup: item.userTable.bloodGroup,
+          medicalInfo: item.userTable.medicalInfo,
+          address: item.userTable.address
+        }));
+        
+        setSosList(mappedSOS);
+        
+        const activeSOS = mappedSOS.filter(s => s.status === 'active');
+        const assignedSOS = mappedSOS.filter(s => s.status === 'assigned');
+        const resolvedSOS = mappedSOS.filter(s => s.status === 'resolved');
+        
+        setStats(prev => ({
+          ...prev,
+          activeSOS: activeSOS.length,
+          assignedSOS: assignedSOS.length,
+          resolvedSOS: resolvedSOS.length
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching SOS:', error);
+    }
   };
 
-  const rejectVolunteer = (id) => {
-    setVolunteers(volunteers.filter(v => v.id !== id));
-    alert('Volunteer rejected.');
+  const fetchVolunteers = async () => {
+    try {
+      const response = await axios.get(
+        'http://localhost:3000/server/evas_function/app/v1/sos/getVolunteers'
+      );
+      if (response.data.success) {
+        setVolunteers(response.data.data);
+        setStats(prev => ({
+          ...prev,
+          totalVolunteers: response.data.data.length
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching volunteers:', error);
+    }
   };
+
+  // ✅ Get volunteer name by ID from volunteers list
+  const getVolunteerName = (volunteerId) => {
+    if (!volunteerId) return 'Not assigned';
+    const volunteer = volunteers.find(v => v.id == volunteerId || v.ROWID == volunteerId);
+    return volunteer ? volunteer.name : 'Unknown Volunteer';
+  };
+
+  const assignVolunteer = async () => {
+    if (!selectedVolunteer) {
+      alert('Please select a volunteer');
+      return;
+    }
+
+    try {
+      const response = await axios.put(
+        `http://localhost:3000/server/evas_function/app/v1/sos/assignVolunteer/${selectedSOS.ROWID}`,
+        {
+          volunteerId: selectedVolunteer
+        }
+      );
+
+      if (response.data.success) {
+        const volunteerName = response.data.data.volunteer?.name || getVolunteerName(selectedVolunteer);
+        alert(`✅ SOS assigned to ${volunteerName}`);
+        setShowAssignModal(false);
+        setSelectedVolunteer('');
+        fetchSOSList();
+        fetchVolunteers();
+      }
+    } catch (error) {
+      console.error('Error assigning volunteer:', error);
+      alert('Failed to assign volunteer');
+    }
+  };
+
+  const updateStatus = async (sosId, status) => {
+    if (!window.confirm(`Mark this SOS as ${status}?`)) return;
+
+    try {
+      const response = await axios.put(
+        `http://localhost:3000/server/evas_function/app/v1/sos/updateStatus/${sosId}`,
+        { status }
+      );
+
+      if (response.data.success) {
+        alert(`✅ SOS marked as ${status}`);
+        fetchSOSList();
+      }
+    } catch (error) {
+      console.error('Error updating status:', error);
+      alert('Failed to update status');
+    }
+  };
+
+  const getStatusBadge = (status) => {
+    switch(status) {
+      case 'active':
+        return <span className="bg-red-500 text-white px-2 py-1 rounded-full text-xs animate-pulse">🚨 ACTIVE</span>;
+      case 'assigned':
+        return <span className="bg-yellow-500 text-white px-2 py-1 rounded-full text-xs">👤 ASSIGNED</span>;
+      case 'resolved':
+        return <span className="bg-green-500 text-white px-2 py-1 rounded-full text-xs">✅ RESOLVED</span>;
+      default:
+        return <span className="bg-gray-500 text-white px-2 py-1 rounded-full text-xs">{status}</span>;
+    }
+  };
+
+  const activeSOS = sosList.filter(s => s.status === 'active');
+  const assignedSOS = sosList.filter(s => s.status === 'assigned');
+  const resolvedSOS = sosList.filter(s => s.status === 'resolved');
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-3xl font-bold text-gray-800 mb-8">Admin Dashboard</h1>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-        <div className="card">
-          <div className="text-sm text-gray-500">Total Users</div>
-          <div className="text-2xl font-bold text-gray-800">{stats.totalUsers}</div>
-        </div>
-        <div className="card">
-          <div className="text-sm text-gray-500">Active Volunteers</div>
-          <div className="text-2xl font-bold text-green-600">{stats.activeVolunteers}</div>
-        </div>
-        <div className="card">
-          <div className="text-sm text-gray-500">Emergencies Today</div>
-          <div className="text-2xl font-bold text-red-600">{stats.emergenciesToday}</div>
-        </div>
-        <div className="card">
-          <div className="text-sm text-gray-500">Avg Response Time</div>
-          <div className="text-2xl font-bold text-blue-600">{stats.avgResponseTime}</div>
-        </div>
-        <div className="card">
-          <div className="text-sm text-gray-500">Pending Verifications</div>
-          <div className="text-2xl font-bold text-yellow-600">{stats.pendingVerifications}</div>
+    <div className="min-h-screen bg-gray-100">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-red-600 to-red-700 text-white p-6 shadow-lg">
+        <div className="container mx-auto">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-bold">👑 EVAS Admin Dashboard</h1>
+              <p className="text-red-100 mt-1">Monitor all SOS alerts</p>
+            </div>
+            <div className="flex space-x-4">
+              <button 
+                onClick={() => navigate('/profile')}
+                className="bg-white text-red-600 px-4 py-2 rounded-lg hover:bg-gray-100"
+              >
+                👤 Profile
+              </button>
+              <button 
+                onClick={() => {
+                  localStorage.clear();
+                  navigate('/login');
+                }}
+                className="bg-red-800 text-white px-4 py-2 rounded-lg hover:bg-red-900"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="flex space-x-8">
-          {['overview', 'volunteers', 'emergencies', 'reports'].map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`pb-4 px-1 capitalize ${
-                activeTab === tab
-                  ? 'border-b-2 border-red-600 text-red-600 font-semibold'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </nav>
+      <div className="container mx-auto p-6">
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-red-500">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-500 text-sm">Active SOS</p>
+                <p className="text-3xl font-bold text-red-600">{stats.activeSOS}</p>
+              </div>
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <span className="text-2xl">🚨</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-yellow-500">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-500 text-sm">Assigned SOS</p>
+                <p className="text-3xl font-bold text-yellow-600">{stats.assignedSOS}</p>
+              </div>
+              <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
+                <span className="text-2xl">👤</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-green-500">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-500 text-sm">Resolved SOS</p>
+                <p className="text-3xl font-bold text-green-600">{stats.resolvedSOS}</p>
+              </div>
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                <span className="text-2xl">✅</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-purple-500">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-500 text-sm">Total Volunteers</p>
+                <p className="text-3xl font-bold text-purple-600">{stats.totalVolunteers}</p>
+              </div>
+              <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+                <span className="text-2xl">🦸</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tab Buttons */}
+        <div className="flex space-x-4 mb-6">
+          <button
+            onClick={() => setActiveTab('active')}
+            className={`px-6 py-2 rounded-lg font-semibold transition ${
+              activeTab === 'active' 
+                ? 'bg-red-600 text-white' 
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            🚨 Active SOS ({activeSOS.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('assigned')}
+            className={`px-6 py-2 rounded-lg font-semibold transition ${
+              activeTab === 'assigned' 
+                ? 'bg-yellow-600 text-white' 
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            👤 Assigned SOS ({assignedSOS.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('resolved')}
+            className={`px-6 py-2 rounded-lg font-semibold transition ${
+              activeTab === 'resolved' 
+                ? 'bg-green-600 text-white' 
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            ✅ Resolved SOS ({resolvedSOS.length})
+          </button>
+        </div>
+
+        {/* Active SOS Tab */}
+        {activeTab === 'active' && (
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-gray-800">🚨 Active SOS (Need Assignment)</h2>
+              <button onClick={fetchSOSList} className="text-blue-600 text-sm">🔄 Refresh</button>
+            </div>
+
+            {activeSOS.length === 0 ? (
+              <div className="text-center py-12 bg-gray-50 rounded-lg">
+                <div className="text-6xl mb-3">✅</div>
+                <p className="text-gray-500">No active SOS alerts</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {activeSOS.map((sos) => (
+                  <div key={sos.ROWID} className="border-2 border-red-200 rounded-lg p-5 bg-red-50">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                        <span className="text-xs font-semibold text-red-600">URGENT</span>
+                        <span className="text-sm text-gray-500">{new Date(sos.CREATEDTIME).toLocaleString()}</span>
+                      </div>
+                      <span className="text-xs text-gray-500">ID: {sos.ROWID?.slice(-8)}</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <p className="text-sm text-gray-600">👤 User</p>
+                        <p className="font-semibold">{sos.userName}</p>
+                        <p className="text-sm">📞 {sos.userPhone}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">📍 Location</p>
+                        <p className="text-sm font-mono">Lat: {sos.latitude}, Lng: {sos.longitude}</p>
+                        <button 
+                          onClick={() => window.open(`https://www.google.com/maps?q=${sos.latitude},${sos.longitude}`, '_blank')}
+                          className="text-xs text-blue-600 hover:underline"
+                        >
+                          View on Map →
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setSelectedSOS(sos);
+                        setShowAssignModal(true);
+                      }}
+                      className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700"
+                    >
+                      👤 Assign to Volunteer
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Assigned SOS Tab - ✅ Fixed volunteer name display */}
+        {activeTab === 'assigned' && (
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-6">👤 Assigned SOS (In Progress)</h2>
+
+            {assignedSOS.length === 0 ? (
+              <div className="text-center py-12 bg-gray-50 rounded-lg">
+                <div className="text-6xl mb-3">📭</div>
+                <p className="text-gray-500">No assigned SOS alerts</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {assignedSOS.map((sos) => {
+                  // ✅ Get volunteer name from volunteers list
+                  const volunteerName = getVolunteerName(sos.assignedVolunteerId);
+                  return (
+                    <div key={sos.ROWID} className="border border-yellow-200 rounded-lg p-4 bg-yellow-50">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-3 mb-2">
+                            {getStatusBadge(sos.status)}
+                            <span className="text-xs text-gray-500">{new Date(sos.CREATEDTIME).toLocaleString()}</span>
+                          </div>
+                          <p className="font-semibold">{sos.userName}</p>
+                          <p className="text-sm text-gray-600">📞 {sos.userPhone}</p>
+                          <p className="text-sm text-gray-600 mt-1">
+                            Assigned to: <span className="font-medium text-green-700">{volunteerName}</span>
+                          </p>
+                          {sos.assignedVolunteerId && (
+                            <p className="text-xs text-gray-400 mt-1">
+                              Volunteer ID: {sos.assignedVolunteerId.slice(-8)}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => updateStatus(sos.ROWID, 'resolved')}
+                          className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700"
+                        >
+                          ✅ Mark Resolved
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Resolved SOS Tab */}
+        {activeTab === 'resolved' && (
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-6">✅ Resolved SOS (Completed)</h2>
+
+            {resolvedSOS.length === 0 ? (
+              <div className="text-center py-12 bg-gray-50 rounded-lg">
+                <div className="text-6xl mb-3">📭</div>
+                <p className="text-gray-500">No resolved SOS alerts</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {resolvedSOS.map((sos) => {
+                  // ✅ Get volunteer name for resolved SOS too
+                  const volunteerName = getVolunteerName(sos.assignedVolunteerId);
+                  return (
+                    <div key={sos.ROWID} className="border border-green-200 rounded-lg p-4 bg-green-50 opacity-80">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-3 mb-2">
+                            {getStatusBadge(sos.status)}
+                            <span className="text-xs text-gray-500">{new Date(sos.CREATEDTIME).toLocaleString()}</span>
+                          </div>
+                          <p className="font-semibold">{sos.userName}</p>
+                          <p className="text-sm text-gray-600">📞 {sos.userPhone}</p>
+                          {sos.assignedVolunteerId && (
+                            <p className="text-sm text-gray-600 mt-1">
+                              Handled by: <span className="font-medium text-green-700">{volunteerName}</span>
+                            </p>
+                          )}
+                          {sos.resolvedAt && (
+                            <p className="text-xs text-gray-500 mt-1">Resolved on: {new Date(sos.resolvedAt).toLocaleString()}</p>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => {
+                            setSelectedSOS(sos);
+                            setShowAssignModal(true);
+                          }}
+                          className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700"
+                        >
+                          View Details
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Tab Content */}
-      {activeTab === 'volunteers' && (
-        <div className="card">
-          <h2 className="text-xl font-semibold mb-4">Volunteer Management</h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rating</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {volunteers.map(volunteer => (
-                  <tr key={volunteer.id}>
-                    <td className="px-6 py-4 whitespace-nowrap">{volunteer.name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">{volunteer.email}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs rounded-full ${
-                        volunteer.status === 'active' ? 'bg-green-100 text-green-800' :
-                        volunteer.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {volunteer.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">{volunteer.rating || 'N/A'}</td>
-                    <td className="px-6 py-4 whitespace-nowrap space-x-2">
-                      {volunteer.status === 'pending' && (
-                        <>
-                          <button
-                            onClick={() => approveVolunteer(volunteer.id)}
-                            className="text-green-600 hover:text-green-800"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => rejectVolunteer(volunteer.id)}
-                            className="text-red-600 hover:text-red-800"
-                          >
-                            Reject
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'emergencies' && (
-        <div className="card">
-          <h2 className="text-xl font-semibold mb-4">Emergency History</h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Response Time</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {emergencies.map(emergency => (
-                  <tr key={emergency.id}>
-                    <td className="px-6 py-4 whitespace-nowrap">#{emergency.id}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">{emergency.type}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">{emergency.location}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">{emergency.time}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">{emergency.responseTime}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs rounded-full ${
-                        emergency.status === 'active' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                      }`}>
-                        {emergency.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'reports' && (
-        <div className="card">
-          <h2 className="text-xl font-semibold mb-4">System Reports</h2>
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="border rounded-lg p-4">
-                <h3 className="font-semibold mb-2">Response Time Analysis</h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Average Response:</span>
-                    <span className="font-semibold">3.2 minutes</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Fastest Response:</span>
-                    <span className="font-semibold">1.5 minutes</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Slowest Response:</span>
-                    <span className="font-semibold">7.8 minutes</span>
-                  </div>
-                </div>
-              </div>
-              <div className="border rounded-lg p-4">
-                <h3 className="font-semibold mb-2">Emergency Types</h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Medical:</span>
-                    <span className="font-semibold">65%</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Accident:</span>
-                    <span className="font-semibold">25%</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Other:</span>
-                    <span className="font-semibold">10%</span>
-                  </div>
-                </div>
-              </div>
+      {/* Assign Volunteer Modal */}
+      {showAssignModal && selectedSOS && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="flex justify-between items-center p-6 border-b">
+              <h2 className="text-xl font-bold">Assign Volunteer</h2>
+              <button onClick={() => setShowAssignModal(false)} className="text-gray-400 hover:text-gray-600">✕</button>
             </div>
-            <div className="border rounded-lg p-4">
-              <h3 className="font-semibold mb-2">Download Reports</h3>
-              <div className="space-x-3">
-                <button className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-                  Download CSV
+            
+            <div className="p-6">
+              <div className="mb-4 p-3 bg-red-50 rounded-lg">
+                <p className="text-sm font-medium text-red-800">🚨 SOS From:</p>
+                <p className="font-semibold">{selectedSOS.userName}</p>
+                <p className="text-sm text-gray-600">📞 {selectedSOS.userPhone}</p>
+              </div>
+              
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Select Volunteer</label>
+                <select
+                  value={selectedVolunteer}
+                  onChange={(e) => setSelectedVolunteer(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
+                >
+                  <option value="">Choose a volunteer...</option>
+                  {volunteers.map(vol => (
+                    <option key={vol.id} value={vol.id}>
+                      {vol.name} - {vol.phone}
+                    </option>
+                  ))}
+                </select>
+                {volunteers.length === 0 && (
+                  <p className="text-xs text-red-500 mt-1">⚠️ No volunteers available</p>
+                )}
+              </div>
+
+              <div className="flex justify-end space-x-3">
+                <button onClick={() => setShowAssignModal(false)} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">
+                  Cancel
                 </button>
-                <button className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700">
-                  Download PDF
+                <button onClick={assignVolunteer} disabled={volunteers.length === 0} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                  Assign SOS
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'overview' && (
-        <div className="card">
-          <h2 className="text-xl font-semibold mb-4">System Overview</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h3 className="font-semibold mb-2">Recent Activity</h3>
-              <ul className="space-y-2 text-sm">
-                <li>• New volunteer registered: John Doe</li>
-                <li>• Emergency #1243 resolved</li>
-                <li>• 5 new users joined today</li>
-                <li>• System health check: All systems operational</li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-2">System Alerts</h3>
-              <ul className="space-y-2 text-sm">
-                <li className="text-green-600">✓ All services running normally</li>
-                <li className="text-green-600">✓ Database backups completed</li>
-                <li className="text-yellow-600">⚠️ 23 volunteers pending verification</li>
-              </ul>
             </div>
           </div>
         </div>

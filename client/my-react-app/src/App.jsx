@@ -11,9 +11,10 @@ import VolunteerMap from './pages/VolunteerMap';
 import EmergencyDetails from './pages/EmergencyDetails';
 import Profile from './pages/Profile';
 import AdminDashboard from './pages/AdminDashboard';
+import VolunteerDashboard from './pages/VolunteerDashboard';
 import About from './pages/About';
 import Contact from './pages/Contact';
-
+import VerifyOTP from './pages/VerifyOTP';
 function App() {
   const [isAuthenticated, setIsAuthenticated] = React.useState(false);
   const [userRole, setUserRole] = React.useState(null);
@@ -34,7 +35,9 @@ function App() {
             <Route path="/volunteer-map" element={isAuthenticated ? <VolunteerMap /> : <Navigate to="/login" />} />
             <Route path="/emergency/:id" element={isAuthenticated ? <EmergencyDetails /> : <Navigate to="/login" />} />
             <Route path="/profile" element={isAuthenticated ? <Profile /> : <Navigate to="/login" />} />
-            <Route path="/admin" element={userRole === 'admin' ? <AdminDashboard /> : <Navigate to="/" />} />
+            <Route path="/admin/dashboard" element={userRole === 'admin' ? <AdminDashboard /> : <Navigate to="/" />} />
+              <Route path="/verify-otp" element={<VerifyOTP />} />
+              <Route path="/volunteer/dashboard" element={<VolunteerDashboard />} />
           </Routes>
         </main>
         <Footer />
